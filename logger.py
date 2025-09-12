@@ -12,14 +12,13 @@ DB_PATH = os.path.join("data", "user_interactions.db")
 IMAGE_DIR = "images"
 SCREENSHOT_MAX_WIDTH = 960
 SCREENSHOT_JPEG_QUALITY = 60
-SCREENSHOT_COOLDOWN_SECONDS = 30 
+SCREENSHOT_COOLDOWN_SECONDS = 30
 
 event_queue = queue.Queue()
 
 def setup_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # --- CHANGE 1: Added a new 'timestamp_utc' column for the human-readable time ---
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS interactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +36,8 @@ def setup_database():
 
 def capture_and_save_optimized():
     try:
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(IMAGE_DIR, f"{timestamp}_{int(time.time() * 1000)}.jpg")
+        timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(IMAGE_DIR, f"{timestamp_str}_{int(time.time() * 1000)}.jpg")
         with mss.mss() as sct:
             sct_img = sct.grab(sct.monitors[1])
             img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
@@ -48,9 +47,11 @@ def capture_and_save_optimized():
                 new_height = int(SCREENSHOT_MAX_WIDTH * aspect_ratio)
                 img = img.resize((SCREENSHOT_MAX_WIDTH, new_height), Image.Resampling.LANCZOS)
             img.save(output_path, "JPEG", quality=SCREENSHOT_JPEG_QUALITY)
+        # On success, return the path
         return output_path
     except Exception as e:
         print(f"[ERROR] Could not capture screenshot: {e}")
+        # On failure, return None
         return None
 
 def database_writer_thread():
@@ -61,31 +62,36 @@ def database_writer_thread():
     while True:
         event = event_queue.get()
         if event is None: break
+
         event_type, details = event
         
-        # --- CHANGE 2: Generate both timestamp formats here ---
         unix_timestamp = time.time()
         utc_timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(unix_timestamp))
-        
         current_window_title = GetWindowText(GetForegroundWindow())
-        screenshot_file = None
+        path_for_db = None # Start with None
+
         window_has_changed = current_window_title and current_window_title != last_active_window
-        cooldown_has_passed = (time.time() - last_screenshot_time) > SCREENSHOT_COOLDOWN_SECONDS
+        cooldown_has_passed = (unix_timestamp - last_screenshot_time) > SCREENSHOT_COOLDOWN_SECONDS
+
+        should_take_screenshot = False
         if window_has_changed:
             print(f"\n[INFO] Window changed to '{current_window_title}'. Triggering screenshot.")
             last_active_window = current_window_title
-            screenshot_file = capture_and_save_optimized()
-            last_screenshot_time = time.time()
+            should_take_screenshot = True
         elif event_type == 'mouse_click' and cooldown_has_passed:
             print(f"\n[INFO] Click detected after cooldown. Triggering screenshot.")
-            screenshot_file = capture_and_save_optimized()
-            last_screenshot_time = time.time()
+            should_take_screenshot = True
             
-        # --- CHANGE 3: Insert both timestamps into the database ---
+        if should_take_screenshot:
+            # ONLY call the function if we need to.
+            # The function returns the path on success or None on failure.
+            path_for_db = capture_and_save_optimized()
+            last_screenshot_time = time.time()
+        
         cursor.execute('''
             INSERT INTO interactions (timestamp, timestamp_utc, event_type, event_details, active_window, screenshot_path)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (unix_timestamp, utc_timestamp_str, event_type, str(details), current_window_title, screenshot_file))
+        ''', (unix_timestamp, utc_timestamp_str, event_type, str(details), current_window_title, path_for_db))
         conn.commit()
         
         print(f"> Logged: {event_type:11} | Window: {current_window_title[:90]}", end='\r')
@@ -113,9 +119,7 @@ if __name__ == "__main__":
     mouse_listener.start()
     keyboard_listener.start()
     print(f"[INFO] Logger is running.")
-    print(f"[INFO] Screenshots on window change, or on clicks after a {SCREENSHOT_COOLDOWN_SECONDS}s cooldown.")
-    print("[INFO] Typing will NOT trigger screenshots.")
-    print("[INFO] Press Ctrl+C in this terminal to gracefully stop.")
+    print(f"[INFO] Press Ctrl+C in this terminal to gracefully stop.")
     try:
         while True:
             time.sleep(1)
