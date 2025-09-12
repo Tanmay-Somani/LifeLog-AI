@@ -35,12 +35,13 @@ def retrieve_documents(query: str) -> list[Document]:
     Uses the native chromadb client to perform the search, guaranteeing it works.
     """
     # The native query returns a dictionary of lists.
+    transformed_query = f"A user activity log chunk about: {query}"
+    print(f"INFO: Transformed query to: '{transformed_query}'")
     results = collection.query(
-        query_texts=[query],
-        n_results=2,
+        query_texts=[transformed_query], # Use the transformed query for the search
+        n_results=3,
         include=["metadatas", "documents"]
     )
-    
     # Manually reconstruct the LangChain Document objects from the raw results.
     final_docs = []
     # The results are nested in a list, so we access the first element [0]

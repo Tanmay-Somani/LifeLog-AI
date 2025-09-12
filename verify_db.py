@@ -48,7 +48,6 @@ def verify_database_contents():
                 print(f"  Content: {document_content[:200]}...") 
             else:
                 print(f"  [CRITICAL FAILURE] Document Content is MISSING or EMPTY (None).")
-                print(f"  This is the reason your searches are failing.")
 
             metadata_content = results['metadatas'][i]
             if metadata_content:

@@ -58,7 +58,10 @@ def summarize_chunk_text(chunk):
                 special_key = details.split("Key.")[-1]
                 if special_key == 'space': keystrokes.append(' ')
                 else: keystrokes.append(f'[{special_key}]')
-    typed_text = "".join(keystrokes).replace('[backspace]', '') 
+    raw_typed_text = "".join(keystrokes)
+    import re
+    typed_text = re.sub(r'(\[.*?\]){2,}', '[Multiple Actions]', raw_typed_text) 
+    typed_text = typed_text.replace('[backspace]', '').replace('[enter]', '\n').strip() 
     return f"In window '{active_window}', user typed: '{typed_text.strip()}'" if typed_text else f"User activity in '{active_window}'."
 def image_to_base64(image_path):
     try:
@@ -117,13 +120,21 @@ def main():
                             logging.error(f"  [Vision Analysis]: FAILED for chunk {chunk_ids[-1]}. Reason: {e}")
                             vision_summary = "Vision analysis failed (timeout or other error)."
                 else: vision_summary = "Could not hash image."
-            combined_text = f"Activity Summary: {text_summary}\nVisual Context: {vision_summary}"
+            combined_text = f"""
+                            type: user_activity_log
+                            window: {last_interaction[4]}
+                            summary: {text_summary}
+                            visual_context: {vision_summary}
+                            """
             embedding = embedding_function.embed_query(combined_text)
+            start_utc = chunk[0][2]
+            end_utc = last_interaction[2]
             collection.add(
                 ids=[str(last_interaction[0])],
                 embeddings=[embedding],
                 documents=[combined_text],
                 metadatas=[{"start_timestamp": float(chunk[0][1]), "end_timestamp": float(last_interaction[1]),
+                            "start_utc": start_utc, "end_utc": end_utc,
                             "window": last_interaction[4], "text_summary": text_summary,
                             "vision_summary": vision_summary, "screenshot_path": screenshot_path or "N/A"}]
             )
