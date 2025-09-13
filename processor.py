@@ -28,7 +28,6 @@ from PIL import Image
 import imagehash
 import colorama 
 
-# --- Universal Configuration (Unchanged) ---
 DB_PATH = os.path.join("data", "user_interactions.db")
 CHROMA_PATH = os.path.join("data", "chroma_db")
 COLLECTION_NAME = "user_activity_collection"
@@ -49,7 +48,6 @@ CLUSTER_LABELS = {
     3: "Command Line", 4: "Documentation", 5: "Miscellaneous"
 }
 
-# --- NEW: Custom Colored Logging Formatter ---
 class ColoredFormatter(logging.Formatter):
     """A custom logging formatter to add colors based on log level."""
     
