@@ -117,6 +117,7 @@ Once the processor has finished, your knowledge base and predictive model are up
     ```bash
     ollama pull phi
     ollama pull llava
+    ollama pull moondream ( use this instead of llava in case of a weaker system)
     ```
 
 6.  **Set Up Python Environment:**
