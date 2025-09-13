@@ -26,25 +26,21 @@ from langchain_community.chat_models.ollama import ChatOllama
 from langchain_core.messages import HumanMessage
 from PIL import Image
 import imagehash
+import colorama 
 
-# --- Universal Configuration ---
-# General
+# --- Universal Configuration (Unchanged) ---
 DB_PATH = os.path.join("data", "user_interactions.db")
 CHROMA_PATH = os.path.join("data", "chroma_db")
 COLLECTION_NAME = "user_activity_collection"
 OUTPUTS_DIR = "outputs"
 FONTS_DIR = "fonts"
 TIMESTAMP = time.strftime("%Y%m%d_%H%M%S")
-
-# Batch Processor Config
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 VISION_MODEL = "llava" 
 CHUNK_TIMEOUT_SECONDS = 5
 PERCEPTUAL_HASH_SIZE = 8
 VISION_MODEL_TIMEOUT = 180 
 TESSERACT_CMD_PATH = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-# Analyzer Config
 MIN_CLUSTER_SIZE = 2
 OUTPUT_PDF_FILENAME = os.path.join(OUTPUTS_DIR, f"LifeLog_AI_Analysis_{TIMESTAMP}.pdf")
 OUTPUT_PLOT_FILENAME = os.path.join(OUTPUTS_DIR, f"activity_clusters_{TIMESTAMP}.png")
@@ -53,15 +49,49 @@ CLUSTER_LABELS = {
     3: "Command Line", 4: "Documentation", 5: "Miscellaneous"
 }
 
-# --- Setup Centralized Logging ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- NEW: Custom Colored Logging Formatter ---
+class ColoredFormatter(logging.Formatter):
+    """A custom logging formatter to add colors based on log level."""
+    
+    # Define color codes using colorama
+    COLORS = {
+        'WARNING': colorama.Fore.YELLOW,
+        'INFO': colorama.Fore.GREEN,
+        'DEBUG': colorama.Fore.CYAN,
+        'CRITICAL': colorama.Fore.RED,
+        'ERROR': colorama.Fore.RED
+    }
+
+    def format(self, record):
+        log_message = super().format(record)
+        return self.COLORS.get(record.levelname, '') + log_message
+
+# --- NEW: Setup Centralized Colored Logging ---
+# Initialize colorama to work on Windows
+colorama.init(autoreset=True)
+
+# Get the root logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Create a handler to print to console
+handler = logging.StreamHandler()
+
+# Create an instance of our custom formatter and set it on the handler
+formatter = ColoredFormatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Remove any existing handlers and add our new colored one
+if logger.hasHandlers():
+    logger.handlers.clear()
+logger.addHandler(handler)
 
 # ==============================================================================
 # SECTION 1: BATCH PROCESSOR LOGIC
 # ==============================================================================
-
 def process_new_interactions(client, collection, embedding_function, vision_llm):
-    logging.info("--- [PIPELINE STEP 1/2] Starting Batch Processing of New Interactions ---")
+    logger.info("--- [PIPELINE STEP 1/2] Starting Batch Processing of New Interactions ---")
+    # ... (rest of the function is the same, but uses 'logger' instead of 'logging')
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD_PATH
     
     conn = sqlite3.connect(DB_PATH)
@@ -71,12 +101,12 @@ def process_new_interactions(client, collection, embedding_function, vision_llm)
     conn.close()
 
     if not interactions:
-        logging.info("No new interactions to process.")
+        logger.info("No new interactions to process.")
         return
 
     chunks = group_interactions_into_chunks(interactions)
     total_chunks = len(chunks)
-    logging.info(f"Grouped {len(interactions)} new interactions into {total_chunks} chunks.")
+    logger.info(f"Grouped {len(interactions)} new interactions into {total_chunks} chunks.")
     
     processed_interaction_ids = []
     processed_hashes = set()
@@ -86,7 +116,7 @@ def process_new_interactions(client, collection, embedding_function, vision_llm)
     for i, chunk in enumerate(chunks):
         chunk_ids = [interaction[0] for interaction in chunk]
         last_interaction = chunk[-1]
-        logging.info(f"--- Processing New Chunk {i+1}/{total_chunks} (ID: {chunk_ids[-1]}) ---")
+        logger.info(f"--- Processing New Chunk {i+1}/{total_chunks} (ID: {chunk_ids[-1]}) ---")
         
         text_summary = summarize_chunk_text(chunk)
         vision_summary, ocr_text = "No screenshot.", "No screenshot."
@@ -96,7 +126,7 @@ def process_new_interactions(client, collection, embedding_function, vision_llm)
             p_hash = calculate_perceptual_hash(screenshot_path)
             if p_hash and p_hash in processed_hashes:
                 vision_summary, ocr_text = last_vision_summary, last_ocr_text
-                logging.info("  [Analysis]: SKIPPED (Duplicate image hash)")
+                logger.info("  [Analysis]: SKIPPED (Duplicate image hash)")
             elif p_hash:
                 processed_hashes.add(p_hash)
                 base64_image = image_to_base64(screenshot_path)
@@ -107,7 +137,7 @@ def process_new_interactions(client, collection, embedding_function, vision_llm)
                         vision_summary = msg.content.strip()
                         last_vision_summary = vision_summary
                     except Exception as e:
-                        logging.error(f"  [Vision]: FAILED. Reason: {e}")
+                        logger.error(f"  [Vision]: FAILED. Reason: {e}")
                         vision_summary = "Vision analysis failed."
                 
                 ocr_text = perform_ocr_on_image(screenshot_path)
@@ -129,8 +159,9 @@ def process_new_interactions(client, collection, embedding_function, vision_llm)
         processed_interaction_ids.extend(chunk_ids)
 
     mark_as_processed(processed_interaction_ids)
-    logging.info("--- Batch Processing Step Complete ---")
+    logger.info("--- Batch Processing Step Complete ---")
 
+# ... (All other functions from the processor remain the same, just ensure they use logger.info, logger.error etc.)
 def group_interactions_into_chunks(interactions):
     if not interactions: return []
     chunks, current_chunk = [], [interactions[0]]
@@ -144,7 +175,6 @@ def group_interactions_into_chunks(interactions):
             current_chunk.append(interactions[i])
     chunks.append(current_chunk)
     return chunks
-
 def summarize_chunk_text(chunk):
     active_window = chunk[-1][5]
     keystrokes = []
@@ -160,7 +190,6 @@ def summarize_chunk_text(chunk):
     raw_text = "".join(keystrokes)
     typed_text = re.sub(r'(\[.*?\]){2,}', '[Multiple Actions]', raw_text).replace('[backspace]','').replace('[enter]','\n').strip()
     return f"In window '{active_window}', user typed: '{typed_text}'" if typed_text else f"User activity in '{active_window}'."
-
 def image_to_base64(path):
     try:
         with Image.open(path) as img:
@@ -168,20 +197,17 @@ def image_to_base64(path):
             img.save(buffer, format="JPEG")
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
     except Exception: return None
-
 def calculate_perceptual_hash(path):
     try:
         with Image.open(path) as img: return imagehash.phash(img, hash_size=PERCEPTUAL_HASH_SIZE)
     except Exception: return None
-
 def perform_ocr_on_image(path):
     try:
         text = pytesseract.image_to_string(Image.open(path), timeout=30)
         return re.sub(r'\n{2,}', '\n', text).strip()
     except Exception as e:
-        logging.error(f"  [OCR]: FAILED. Reason: {e}")
+        logger.error(f"  [OCR]: FAILED. Reason: {e}")
         return "OCR failed."
-
 def mark_as_processed(ids):
     if not ids: return
     conn = sqlite3.connect(DB_PATH)
@@ -189,35 +215,30 @@ def mark_as_processed(ids):
     cursor.executemany("UPDATE interactions SET processed = 1 WHERE id = ?", [(id,) for id in ids])
     conn.commit()
     conn.close()
-    logging.info(f"Successfully marked {len(ids)} interactions as processed.")
-
-# ==============================================================================
-# SECTION 2: ANALYZER LOGIC
-# ==============================================================================
-
+    logger.info(f"Successfully marked {len(ids)} interactions as processed.")
 class PDFReport(FPDF):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_font("DejaVu", "", os.path.join(FONTS_DIR, "DejaVuSans.ttf"))
+        self.add_font("DejaVu", "B", os.path.join(FONTS_DIR, "DejaVuSans-Bold.ttf"))
     def header(self):
         self.set_font('Helvetica', 'B', 15)
         self.cell(0, 10, 'LifeLog-AI Analysis Report', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
         self.set_font('Helvetica', '', 10)
         self.cell(0, 10, f'Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
         self.ln(10)
-
     def footer(self):
         self.set_y(-15)
         self.set_font('Helvetica', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()}', align='C')
-
     def chapter_title(self, title):
         self.set_font('DejaVu', 'B', 12)
         self.cell(0, 10, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L')
         self.ln(5)
-
     def chapter_body(self, data):
         self.set_font('DejaVu', '', 10)
         self.multi_cell(0, 5, data, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln()
-
     def add_dataframe(self, df):
         self.set_font('DejaVu', 'B', 8)
         header = list(df.columns)
@@ -232,15 +253,11 @@ class PDFReport(FPDF):
                 self.cell(col_widths[i], 6, item, border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
             self.ln()
         self.ln()
-
 def run_analysis(client, collection):
-    logging.info("--- [PIPELINE STEP 2/2] Starting Full Analysis of All Data ---")
-    
-    # 1. Load and Clean Data
-    logging.info("Loading and cleaning all data from ChromaDB...")
+    logger.info("--- [PIPELINE STEP 2/2] Starting Full Analysis of All Data ---")
+    logger.info("Loading and cleaning all data from ChromaDB...")
     data = collection.get(include=["metadatas", "embeddings", "documents"])
-    if not data['ids']: raise ValueError("ChromaDB is empty.")
-    
+    if not data['ids']: raise ValueError("ChromaDB is empty. Cannot perform analysis.")
     df = pd.DataFrame(data['metadatas'])
     embeddings = np.array(data['embeddings'])
     documents = data['documents']
@@ -250,47 +267,33 @@ def run_analysis(client, collection):
     df = df.reset_index(drop=True)
     embeddings = embeddings[valid_indices]
     documents = [documents[i] for i in valid_indices]
-    logging.info(f"Analyzing {len(df)} total entries.")
-
-    # 2. NLP Analysis
-    logging.info("Performing NLP Topic Modeling and NER...")
+    logger.info(f"Analyzing {len(df)} total entries.")
+    logger.info("Performing NLP Topic Modeling and NER...")
     topic_model = BERTopic(embedding_model="all-MiniLM-L6-v2", min_topic_size=2, verbose=False)
     topics, _ = topic_model.fit_transform(documents)
     df['topic'] = topics
     topic_info = topic_model.get_topic_info()
-
     nlp = spacy.load("en_core_web_sm")
     df['full_text'] = (df['text_summary'].fillna('') + " " + df['vision_summary'].fillna('') + " " + df.get('ocr_text', pd.Series([''] * len(df))).fillna(''))
     entities = [", ".join([f"{ent.text} ({ent.label_})" for ent in doc.ents if ent.label_ in ["PERSON", "ORG", "GPE"]])
                 for doc in nlp.pipe(df['full_text'], disable=["parser", "lemmatizer"])]
     df['entities'] = [ent if ent else "None" for ent in entities]
-
-    # 3. Clustering and Anomaly Detection
-    logging.info("Performing NLP-Informed Clustering and Anomaly Detection...")
+    logger.info("Performing NLP-Informed Clustering and Anomaly Detection...")
     topic_one_hot = pd.get_dummies(df['topic'], prefix='topic')
     combined_features = np.hstack((embeddings, topic_one_hot))
     df['cluster'] = hdbscan.HDBSCAN(min_cluster_size=MIN_CLUSTER_SIZE).fit_predict(combined_features)
     df['is_anomaly'] = (IsolationForest(random_state=42).fit_predict(combined_features) == -1)
-
-    # 4. Reporting and Visualization
     generate_pdf_report(df, topic_info)
     generate_visualization(embeddings, df['topic'], topic_info, df['is_anomaly'].values)
-    
-    # 5. Train DL Model
     train_and_save_classifier(df, embeddings)
-    logging.info("--- Full Analysis Step Complete ---")
-
+    logger.info("--- Full Analysis Step Complete ---")
 def generate_pdf_report(df, topic_info):
-    logging.info("Generating PDF report...")
+    logger.info("Generating PDF report...")
     pdf = PDFReport()
-    pdf.add_font("DejaVu", "", os.path.join(FONTS_DIR, "DejaVuSans.ttf"))
-    pdf.add_font("DejaVu", "B", os.path.join(FONTS_DIR, "DejaVuSans-Bold.ttf"))
     pdf.set_fill_color(240, 240, 240)
     pdf.add_page()
-    
     pdf.chapter_title("NLP Topic Modeling Results (BERTopic)")
     pdf.add_dataframe(topic_info[["Topic", "Count", "Name"]].head(15))
-
     pdf.chapter_title("NLP-Informed Cluster Analysis (HDBSCAN)")
     for label in sorted(df['cluster'].unique()):
         if label == -1: continue
@@ -302,7 +305,6 @@ def generate_pdf_report(df, topic_info):
         pdf.chapter_body("Most Common Applications:\n" + cluster_df['window'].value_counts().head(3).to_string())
         pdf.chapter_body("\nExample Activities:\n" + "\n".join([f"- {s}" for s in cluster_df['text_summary'].head(3)]))
         pdf.ln(5)
-
     pdf.add_page()
     pdf.chapter_title("Anomaly Detection Results")
     anomaly_df = df[df['is_anomaly']]
@@ -311,7 +313,6 @@ def generate_pdf_report(df, topic_info):
             pdf.chapter_body(f"Window: {row['window']}\nSummary: {row['text_summary']}\n")
     else:
         pdf.chapter_body("No significant anomalies detected.")
-        
     pdf.chapter_title("Named Entity Recognition Results (spaCy)")
     entity_df = df[df['entities'] != 'None'][['window', 'entities']]
     if not entity_df.empty:
@@ -319,22 +320,19 @@ def generate_pdf_report(df, topic_info):
              pdf.chapter_body(f"In Window '{row['window']}': {row['entities']}")
     else:
          pdf.chapter_body("No significant entities found.")
-
     pdf.output(OUTPUT_PDF_FILENAME)
-    logging.info(f"PDF report saved to '{OUTPUT_PDF_FILENAME}'")
-
+    logger.info(f"PDF report saved to '{OUTPUT_PDF_FILENAME}'")
 def generate_visualization(embeddings, topics, topic_info, anomaly_labels):
-    logging.info("Generating 2D visualization...")
+    logger.info("Generating 2D visualization...")
     n_neighbors = min(15, len(embeddings) - 1)
     if n_neighbors < 2:
-        logging.warning("Not enough data to generate UMAP plot.")
+        logger.warning("Not enough data to generate UMAP plot.")
         return
     reducer = umap.UMAP(n_neighbors=n_neighbors, random_state=42, n_jobs=1)
     embeddings_2d = reducer.fit_transform(embeddings)
     df_2d = pd.DataFrame(embeddings_2d, columns=['x', 'y'])
     df_2d['topic'] = [topic_info.loc[topic_info['Topic'] == t, 'Name'].iloc[0] for t in topics]
     df_2d['anomaly'] = ['Anomaly' if label == -1 else 'Normal' for label in anomaly_labels]
-    
     plt.figure(figsize=(16, 12))
     sns.scatterplot(data=df_2d, x='x', y='y', hue='topic', style='anomaly', size='anomaly',
                     sizes=(50, 200), palette='turbo', alpha=0.8)
@@ -343,46 +341,44 @@ def generate_visualization(embeddings, topics, topic_info, anomaly_labels):
     plt.grid(True, linestyle='--', linewidth=0.5)
     plt.tight_layout()
     plt.savefig(OUTPUT_PLOT_FILENAME)
-    logging.info(f"Visualization saved to '{OUTPUT_PLOT_FILENAME}'")
-
+    logger.info(f"Visualization saved to '{OUTPUT_PLOT_FILENAME}'")
 def train_and_save_classifier(df, embeddings):
-    logging.info("--- Training a Deep Learning Classifier ---")
+    logger.info("--- Training a Deep Learning Classifier ---")
     trainable_df = df[df['cluster'] != -1].copy()
     if len(trainable_df) < 10:
-        logging.warning("Not enough clustered data to train. Skipping.")
+        logger.warning("Not enough clustered data to train. Skipping.")
         return
     trainable_embeddings = embeddings[trainable_df.index]
     trainable_df['task_label'] = trainable_df['cluster'].map(CLUSTER_LABELS)
     trainable_df.dropna(subset=['task_label'], inplace=True)
     if len(trainable_df['task_label'].unique()) < 2:
-        logging.warning("Need at least two different task labels to train. Skipping.")
+        logger.warning("Need at least two different task labels to train. Skipping.")
         return
-
     X, y = trainable_embeddings, pd.Categorical(trainable_df['task_label']).codes
     label_mapping = dict(enumerate(pd.Categorical(trainable_df['task_label']).categories))
-    
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
     model = MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=500, activation='relu',
                           solver='adam', random_state=42, early_stopping=True, n_iter_no_change=20)
     model.fit(X_train, y_train)
-    
     predictions = model.predict(X_test)
     target_names = [label_mapping[i] for i in sorted(label_mapping.keys())]
     report = classification_report(y_test, predictions, target_names=target_names, zero_division=0)
-    logging.info(f"Classification Report:\n{report}")
-    
+    logger.info("Classification Report:\n" + report)
     model_bundle = {"model": model, "label_mapping": label_mapping}
     model_path = os.path.join(OUTPUTS_DIR, "task_classifier.joblib")
     joblib.dump(model_bundle, model_path)
-    logging.info(f"Successfully saved model bundle to '{model_path}'")
+    logger.info(f"Successfully saved model bundle to '{model_path}'")
 
 # ==============================================================================
 # SECTION 3: MAIN EXECUTION
 # ==============================================================================
 def main():
-    logging.info("====== LifeLog-AI Processing & Analysis Pipeline START ======")
+    logger.info("====== LifeLog-AI Processing & Analysis Pipeline START ======")
     if not os.path.exists(OUTPUTS_DIR):
         os.makedirs(OUTPUTS_DIR)
+    if not os.path.exists(FONTS_DIR):
+        logger.error(f"Fonts directory not found at '{FONTS_DIR}'. Please create it and add DejaVuSans.ttf and DejaVuSans-Bold.ttf.")
+        return
 
     try:
         # Initialize models once
@@ -391,14 +387,13 @@ def main():
         embedding_function = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
         vision_llm = ChatOllama(model=VISION_MODEL, temperature=0, request_timeout=VISION_MODEL_TIMEOUT)
         
-        # --- Run the two main stages of the pipeline ---
         process_new_interactions(client, collection, embedding_function, vision_llm)
         run_analysis(client, collection)
 
     except Exception as e:
-        logging.error(f"An unexpected error occurred in the main pipeline: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred in the main pipeline: {e}", exc_info=True)
 
-    logging.info("====== LifeLog-AI Processing & Analysis Pipeline END ======")
+    logger.info("====== LifeLog-AI Processing & Analysis Pipeline END ======")
 
 if __name__ == "__main__":
     main()
