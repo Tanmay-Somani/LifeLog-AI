@@ -90,7 +90,10 @@ Once the processor has finished, your knowledge base and predictive model are up
     This is the recommended tool for live monitoring and database management.
     ```bash
     python utils_dashboard.py
+
     ```
+## Testing the video
+[Watch the full demo video](https://github.com/Tanmay-Somani/LifeLog-AI/blob/main/demo/LifelogAi.mp4)
 
 ## Setup & Installation
 
