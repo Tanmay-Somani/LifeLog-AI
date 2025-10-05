@@ -93,7 +93,7 @@ Once the processor has finished, your knowledge base and predictive model are up
 
     ```
 ## Testing the video
-[Watch the full demo video](demo/lifelogai.mp4)
+[Watch the full demo video](https://github.com/Tanmay-Somani/LifeLog-AI/blob/main/demo/LifelogAi.mp4)
 
 ## Setup & Installation
 
