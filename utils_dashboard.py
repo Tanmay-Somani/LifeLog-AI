@@ -199,7 +199,8 @@ class App(tk.Tk):
     def toggle_monitor(self):
         # ... (code for this function is unchanged)
         if self.monitor_thread and self.monitor_thread.is_alive():
-            self.update_output(self.monitor_output, "\n--- Sending stop signal... ---\n")
+            self.update_text_widget(self.monitor_output, "--- Starting Live Activity Monitor ---\n", clear_first=True)
+
             self.monitor_stop_event.set()
             self.monitor_button.config(text="Start Monitor")
         else:
@@ -209,14 +210,16 @@ class App(tk.Tk):
 
     def run_live_monitor(self, output_widget):
         # ... (code for this function is unchanged)
-        self.update_output(output_widget, "--- Starting Live Activity Monitor ---\n", clear_first=True)
+        self.update_text_widget(output_widget, "--- Starting Live Activity Monitor ---\n", clear_first=True)
+
         try:
             model_bundle = joblib.load(MODEL_PATH)
             model, label_mapping = model_bundle["model"], model_bundle["label_mapping"]
-            self.update_output(output_widget, f"[INFO] Loaded model and mapping: {label_mapping}\n")
+            self.update_text_widget(output_widget, "--- Starting Live Activity Monitor ---\n", clear_first=True)
+
             embedding_function = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
         except Exception as e:
-            self.update_output(output_widget, f"[ERROR] Failed to load model: {e}\n")
+            self.update_text_widget(output_widget, f"[ERROR] Failed to load model: {e}\n")
             self.monitor_button.config(text="Start Monitor")
             return
         last_processed_id = 0
@@ -233,11 +236,11 @@ class App(tk.Tk):
                 pred_code = model.predict(np.array(embedding).reshape(1, -1))[0]
                 pred_label = label_mapping.get(pred_code, "Unknown")
                 confidence = np.max(model.predict_proba(np.array(embedding).reshape(1, -1))) * 100
-                self.update_output(output_widget, f"\n--- {time.strftime('%H:%M:%S')} ---\nActivity: {text_summary}\n==> Predicted Task: {pred_label} (Confidence: {confidence:.2f}%)\n")
+                self.update_text_widget(output_widget, f"\n--- {time.strftime('%H:%M:%S')} ---\nActivity: {text_summary}\n==> Predicted Task: {pred_label} (Confidence: {confidence:.2f}%)\n")
             time.sleep(MONITOR_INTERVAL_SECONDS)
         conn.close()
-        self.update_output(output_widget, "\n--- Monitor has stopped. ---\n")
-        
+        self.update_text_widget(output_widget, "\n--- Monitor has stopped. ---\n")
+
     def summarize_live_text(self, interactions):
         # ... (code for this function is unchanged)
         if not interactions: return ""
@@ -265,15 +268,15 @@ class App(tk.Tk):
         button.pack(pady=5)
     def run_check_sqlite(self, output_widget):
         # ... (code is unchanged)
-        self.update_output(output_widget, "--- Checking SQLite Database ---\n\n", clear_first=True)
+        self.update_text_widget(output_widget, "--- Checking SQLite Database ---\n\n", clear_first=True)
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT id, timestamp_utc, event_type, screenshot_path FROM interactions ORDER BY id DESC LIMIT 20")
         rows = cursor.fetchall()
         conn.close()
         header = f"{'ID':<5} | {'Timestamp (UTC)':<20} | {'Event Type':<12} | Screenshot Path\n" + "-" * 70 + "\n"
-        self.update_output(output_widget, header)
-        for row in rows: self.update_output(output_widget, f"{row[0]:<5} | {row[1] or 'N/A':<20} | {row[2]:<12} | {row[3]}\n")
+        self.update_text_widget(output_widget, header)
+        for row in rows: self.update_text_widget(output_widget, f"{row[0]:<5} | {row[1] or 'N/A':<20} | {row[2]:<12} | {row[3]}\n")
 
     def create_verify_chroma_tab(self):
         # ... (code is unchanged)
@@ -285,16 +288,16 @@ class App(tk.Tk):
         button.pack(pady=5)
     def run_verify_chroma(self, output_widget):
         # ... (code is unchanged)
-        self.update_output(output_widget, "--- Verifying ChromaDB ---\n\n", clear_first=True)
+        self.update_text_widget(output_widget, "--- Verifying ChromaDB ---\n\n", clear_first=True)
         client = chromadb.PersistentClient(path=CHROMA_PATH)
         collection = client.get_collection(name=COLLECTION_NAME)
         item_count = collection.count()
-        self.update_output(output_widget, f"[INFO] Database contains {item_count} items.\n\n")
+        self.update_text_widget(output_widget, f"[INFO] Database contains {item_count} items.\n\n")
         if item_count == 0: return
         results = collection.get(limit=5, include=["metadatas", "documents"])
         for i, doc_id in enumerate(results['ids']):
-            self.update_output(output_widget, f"-- Item {i+1} (ID: {doc_id}) --\n[SUCCESS] Doc Content: {results['documents'][i][:200]}...\n  Metadata: {results['metadatas'][i]}\n")
-            
+            self.update_text_widget(output_widget, f"-- Item {i+1} (ID: {doc_id}) --\n[SUCCESS] Doc Content: {results['documents'][i][:200]}...\n  Metadata: {results['metadatas'][i]}\n")
+
     def create_reset_sqlite_tab(self):
         # ... (code is unchanged)
         tab = ttk.Frame(self.notebook)
@@ -312,7 +315,7 @@ class App(tk.Tk):
         if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all 'processed' flags to 0?"):
             self.start_worker_thread(self.execute_reset, output_widget)
         else:
-            self.update_output(output_widget, "Reset cancelled.\n")
+            self.update_text_widget(output_widget, "Reset cancelled.\n")
     def execute_reset(self, output_widget):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -320,7 +323,7 @@ class App(tk.Tk):
         rows = cursor.rowcount
         conn.commit()
         conn.close()
-        self.update_output(output_widget, f"[SUCCESS] Reset {rows} rows.\n")
+        self.update_text_widget(output_widget, f"[SUCCESS] Reset {rows} rows.\n")
 
 if __name__ == "__main__":
     app = App()
